@@ -156,8 +156,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SHA="$(cat gardener/UPSTREAM_COMMIT)"
-          test -n "$SHA"
+
+          if [ -f gardener/UPSTREAM_COMMIT ]; then
+            SHA="$(tr -d '[:space:]' < gardener/UPSTREAM_COMMIT)"
+          else
+            echo "gardener/UPSTREAM_COMMIT absent; reading upstream main."
+            SHA="$(git ls-remote \
+              https://github.com/mniedermaier/gardener.git \
+              refs/heads/main | cut -f1)"
+          fi
+
+          if [ -z "$SHA" ]; then
+            echo "Unable to determine upstream commit SHA."
+            exit 1
+          fi
+
+          echo "Using upstream commit: $SHA"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
