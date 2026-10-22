@@ -1,5 +1,5 @@
 name: "Gardener Potager"
-version: "0.1.1"
+version: "0.1.2"
 slug: "gardener_potager"
 description: "Planificateur de potager auto-hébergé basé sur Gardener"
 url: "https://github.com/lobor/ha-gardener"
@@ -13,6 +13,10 @@ arch:
 startup: application
 boot: auto
 init: false
+ingress: true
+ingress_port: 80
+panel_title: Gardener
+panel_icon: mdi:sprout
 
 ports:
   80/tcp: 8099
