@@ -1,0 +1,18 @@
+name: "Gardener Potager"
+version: "0.1.0"
+slug: "gardener_potager"
+description: "Planificateur de potager auto-hébergé basé sur Gardener"
+url: "https://github.com/mniedermaier/gardener"
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+ports:
+  80/tcp: 8099
+map:
+  - type: data
+    read_only: false
+options: {}
+schema: {}
