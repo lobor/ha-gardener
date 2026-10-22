@@ -13,7 +13,7 @@ RUN sed -i \
     /src/docker/security-headers.conf
 
 # Build frontend
-RUN npm ci && npm run build
+RUN npm ci && npm run build -- --base=./
 
 # Build backend
 WORKDIR /src/backend
