@@ -1,0 +1,112 @@
+
+name: Check Gardener upstream
+
+on:
+  schedule:
+    - cron: "17 8 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: gardener-upstream-update
+  cancel-in-progress: false
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get latest upstream commit
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SHA="$(git ls-remote \
+            https://github.com/mniedermaier/gardener.git \
+            refs/heads/main | cut -f1)"
+
+          if [ -z "$SHA" ]; then
+            echo "Unable to read upstream commit"
+            exit 1
+          fi
+
+          CURRENT="$(cat gardener/UPSTREAM_COMMIT 2>/dev/null || true)"
+
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+          if [ "$SHA" != "$CURRENT" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update upstream reference and version
+        if: steps.upstream.outputs.changed == 'true'
+        env:
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "$UPSTREAM_SHA" > gardener/UPSTREAM_COMMIT
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path("gardener/config.yaml")
+          content = path.read_text()
+
+          pattern = r'(?m)^version:\s*["\']?(\d+)\.(\d+)\.(\d+)["\']?\s*$'
+          match = re.search(pattern, content)
+
+          if not match:
+              raise SystemExit(
+                  "Version introuvable dans gardener/config.yaml"
+              )
+
+          major, minor, patch = map(int, match.groups())
+          new_version = f"{major}.{minor}.{patch + 1}"
+
+          content = re.sub(
+              pattern,
+              f'version: "{new_version}"',
+              content,
+              count=1,
+          )
+
+          path.write_text(content)
+          print(f"Version proposée : {new_version}")
+          PY
+
+      - name: Create or update pull request
+        if: steps.upstream.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/update-gardener-upstream
+          base: main
+          delete-branch: true
+          title: "chore: update upstream Gardener"
+          commit-message: "chore: update upstream Gardener"
+          body: |
+            Un nouveau commit a été détecté dans
+            mniedermaier/gardener, branche main.
+
+            Cette PR met à jour gardener/UPSTREAM_COMMIT
+            et incrémente la version de l'add-on.
+
+            Vérifier les changements et tester le build
+            avant de fusionner.
+          labels: |
+            dependencies
+            automated

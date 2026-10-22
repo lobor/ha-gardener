@@ -1,18 +1,25 @@
 name: "Gardener Potager"
-version: "0.1.0"
+version: "0.1.1"
 slug: "gardener_potager"
 description: "Planificateur de potager auto-hébergé basé sur Gardener"
-url: "https://github.com/mniedermaier/gardener"
+url: "https://github.com/lobor/ha-gardener"
+
+image: "ghcr.io/lobor/ha-gardener"
+
 arch:
   - amd64
   - aarch64
+
 startup: application
 boot: auto
 init: false
+
 ports:
   80/tcp: 8099
+
 map:
   - type: data
     read_only: false
+
 options: {}
 schema: {}
