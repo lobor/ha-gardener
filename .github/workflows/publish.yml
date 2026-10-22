@@ -1,7 +1,12 @@
-
 name: Check Gardener upstream
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish.yml"
+      - "gardener/**"
   schedule:
     - cron: "17 8 1 * *"
   workflow_dispatch:
