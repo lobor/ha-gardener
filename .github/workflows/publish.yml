@@ -1,35 +1,49 @@
-name: Check Gardener upstream
+
+name: Gardener - update, test and publish
 
 on:
+  schedule:
+    - cron: "17 8 1 * *"
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "gardener/**"
+      - ".github/workflows/publish.yml"
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/publish.yml"
       - "gardener/**"
-  schedule:
-    - cron: "17 8 1 * *"
-  workflow_dispatch:
+      - ".github/workflows/publish.yml"
 
 permissions:
   contents: write
   pull-requests: write
+  packages: write
 
 concurrency:
-  group: gardener-upstream-update
+  group: gardener-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/lobor/ha-gardener
 
 jobs:
   check-upstream:
+    name: Check upstream and open PR
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Get latest upstream commit
+      - name: Detect upstream changes
         id: upstream
         shell: bash
         run: |
@@ -52,9 +66,10 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream has not changed."
           fi
 
-      - name: Update upstream reference and version
+      - name: Update upstream SHA and add-on version
         if: steps.upstream.outputs.changed == 'true'
         env:
           UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
@@ -75,9 +90,7 @@ jobs:
           match = re.search(pattern, content)
 
           if not match:
-              raise SystemExit(
-                  "Version introuvable dans gardener/config.yaml"
-              )
+              raise SystemExit("Version not found in gardener/config.yaml")
 
           major, minor, patch = map(int, match.groups())
           new_version = f"{major}.{minor}.{patch + 1}"
@@ -90,8 +103,27 @@ jobs:
           )
 
           path.write_text(content)
-          print(f"Version proposée : {new_version}")
+          print(f"Proposed add-on version: {new_version}")
           PY
+
+      - name: Set up QEMU
+        if: steps.upstream.outputs.changed == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.upstream.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test build for upstream commit
+        if: steps.upstream.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./gardener
+          file: ./gardener/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: |
+            GARDENER_REF=${{ steps.upstream.outputs.sha }}
 
       - name: Create or update pull request
         if: steps.upstream.outputs.changed == 'true'
@@ -104,14 +136,94 @@ jobs:
           title: "chore: update upstream Gardener"
           commit-message: "chore: update upstream Gardener"
           body: |
-            Un nouveau commit a été détecté dans
-            mniedermaier/gardener, branche main.
+            A new commit was detected in mniedermaier/gardener.
 
-            Cette PR met à jour gardener/UPSTREAM_COMMIT
-            et incrémente la version de l'add-on.
+            This PR updates gardener/UPSTREAM_COMMIT and bumps the
+            add-on version. The Docker image build is tested before
+            the PR is created. Review and merge to publish the image.
 
-            Vérifier les changements et tester le build
-            avant de fusionner.
-          labels: |
-            dependencies
-            automated
+  test-pr:
+    name: Test Docker image
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+
+      - name: Read upstream SHA
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(cat gardener/UPSTREAM_COMMIT)"
+          test -n "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./gardener
+          file: ./gardener/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: |
+            GARDENER_REF=${{ steps.upstream.outputs.sha }}
+
+  publish:
+    name: Publish Docker image to GHCR
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Read version and upstream SHA
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(sed -n 's/^version:[[:space:]]*["'\'']\{0,1\}\([^"'\'']*\)["'\'']\{0,1\}[[:space:]]*$/\1/p' gardener/config.yaml | head -n1)"
+          SHA="$(cat gardener/UPSTREAM_COMMIT)"
+
+          if [ -z "$VERSION" ] || [ -z "$SHA" ]; then
+            echo "Version or upstream SHA is missing."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./gardener
+          file: ./gardener/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            GARDENER_REF=${{ steps.metadata.outputs.sha }}
+          tags: |
+            ghcr.io/lobor/ha-gardener:${{ steps.metadata.outputs.version }}
+            ghcr.io/lobor/ha-gardener:latest
