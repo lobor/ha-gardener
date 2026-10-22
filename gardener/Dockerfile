@@ -4,7 +4,9 @@ FROM node:26-alpine AS source-build
 
 RUN apk add --no-cache git python3 make g++
 WORKDIR /src
-RUN git clone --depth 1 --branch main https://github.com/mniedermaier/gardener.git .
+ARG GARDENER_REF=main
+RUN git clone https://github.com/mniedermaier/gardener.git . \
+    && git checkout "${GARDENER_REF}"
 
 # Build frontend
 RUN npm ci && npm run build
