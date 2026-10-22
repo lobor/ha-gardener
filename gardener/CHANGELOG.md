@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Changement de la base url pour synchronisé les données.
+
 ## 0.1.4
 
 - Corrige le chargement des fichiers JavaScript et CSS via Home Assistant Ingress.
