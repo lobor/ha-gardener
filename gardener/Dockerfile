@@ -7,6 +7,10 @@ WORKDIR /src
 ARG GARDENER_REF=main
 RUN git clone https://github.com/mniedermaier/gardener.git . \
     && git checkout "${GARDENER_REF}"
+RUN sed -i \
+    -e '/X-Frame-Options.*DENY/d' \
+    -e "s/frame-ancestors 'none'/frame-ancestors 'self'/" \
+    /src/docker/security-headers.conf
 
 # Build frontend
 RUN npm ci && npm run build
